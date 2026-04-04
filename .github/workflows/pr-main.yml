@@ -1,0 +1,290 @@
+name: PR → main — quality gate + contract tests
+
+# ─────────────────────────────────────────────────────────────
+# Runs ONLY on pull requests targeting the main branch.
+# Adds contract tests (L3) on top of the standard CI gates.
+# Merge button on GitHub is disabled until this passes.
+# ─────────────────────────────────────────────────────────────
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+concurrency:
+  group: pr-main-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+  MAVEN_OPTS: '-Xmx2g -XX:+UseG1GC'
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────
+  # PR-0: Enforce PR quality standards before running tests
+  # ─────────────────────────────────────────────────────────
+  pr-standards:
+    name: PR-0 — PR standards check
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate PR title follows conventional commits
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Accepted types: feat, fix, refactor, test, chore, docs, perf, ci
+          types: |
+            feat
+            fix
+            refactor
+            test
+            chore
+            docs
+            perf
+            ci
+          requireScope: false
+
+      - name: Check PR is targeting develop → main only
+        run: |
+          if [ "${{ github.event.pull_request.head.ref }}" != "develop" ]; then
+            echo "ERROR: PRs to main must come from the develop branch only."
+            echo "Current source branch: ${{ github.event.pull_request.head.ref }}"
+            echo "Exception: hotfix/* branches are allowed."
+            if [[ "${{ github.event.pull_request.head.ref }}" != hotfix/* ]]; then
+              exit 1
+            fi
+          fi
+
+  # ─────────────────────────────────────────────────────────
+  # PR-1: Full CI pipeline (same as ci.yml, re-run on PR)
+  # All 7 CI stages must pass.
+  # ─────────────────────────────────────────────────────────
+  full-ci:
+    name: PR-1 — Full CI (compile + tests + 80% gate + Sonar)
+    runs-on: ubuntu-latest
+    needs: pr-standards
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Verify Docker is available
+        run: docker info
+
+      - name: Compile
+        run: mvn compile --no-transfer-progress --batch-mode
+
+      - name: Unit tests
+        run: |
+          mvn test \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dgroups=unit \
+            -DexcludedGroups="integration,contract"
+
+      - name: Integration tests
+        run: |
+          mvn verify \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dgroups=integration \
+            -DexcludedGroups="unit,contract"
+        env:
+          TESTCONTAINERS_REUSE_ENABLE: true
+
+      - name: JaCoCo 80% gate + SonarQube
+        run: |
+          mvn jacoco:merge jacoco:report jacoco:check sonar:sonar \
+            --no-transfer-progress \
+            --batch-mode \
+            -Pci \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.pullrequest.key=${{ github.event.pull_request.number }} \
+            -Dsonar.pullrequest.branch=${{ github.head_ref }} \
+            -Dsonar.pullrequest.base=${{ github.base_ref }}
+
+      - name: Check SonarQube quality gate
+        uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-coverage-report
+          path: '**/target/site/jacoco/'
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────
+  # PR-2: Contract tests (L3)
+  # Verifies API contracts that downstream services depend on.
+  # Only runs on PR to main — not on every push.
+  # ─────────────────────────────────────────────────────────
+  contract-tests:
+    name: PR-2 — Contract tests
+    runs-on: ubuntu-latest
+    needs: pr-standards
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Run contract tests (@Tag("contract") only)
+        run: |
+          mvn test \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dgroups=contract \
+            -DexcludedGroups="unit,integration"
+
+      - name: Upload contract test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: contract-test-results
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────
+  # PR-3: Coverage regression check
+  # Ensures coverage does not decrease with this PR.
+  # ─────────────────────────────────────────────────────────
+  coverage-regression:
+    name: PR-3 — Coverage regression guard
+    runs-on: ubuntu-latest
+    needs: full-ci
+    timeout-minutes: 5
+
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-coverage-report
+
+      - name: Post coverage summary to PR
+        uses: madrapps/jacoco-report@v1.6.1
+        with:
+          paths: '**/jacoco.xml'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: Code Coverage Report
+          update-comment: true
+          min-coverage-overall: 80
+          min-coverage-changed-files: 80
+
+  # ─────────────────────────────────────────────────────────
+  # PR-4: Security scan
+  # Checks for known vulnerabilities in dependencies.
+  # ─────────────────────────────────────────────────────────
+  security-scan:
+    name: PR-4 — Dependency security scan
+    runs-on: ubuntu-latest
+    needs: pr-standards
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: OWASP Dependency Check
+        run: |
+          mvn org.owasp:dependency-check-maven:check \
+            --no-transfer-progress \
+            --batch-mode \
+            -DfailBuildOnCVSS=9 \
+            -DsuppressedFiles=.owasp-suppressions.xml
+        continue-on-error: false
+
+      - name: Upload OWASP report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: owasp-dependency-report
+          path: '**/target/dependency-check-report.html'
+          retention-days: 14
+
+  # ─────────────────────────────────────────────────────────
+  # Final gate: All checks must pass before merge is allowed.
+  # GitHub branch protection rules reference this job.
+  # ─────────────────────────────────────────────────────────
+  pr-gate:
+    name: PR gate — all checks passed
+    runs-on: ubuntu-latest
+    needs:
+      - full-ci
+      - contract-tests
+      - coverage-regression
+      - security-scan
+    if: always()
+
+    steps:
+      - name: Evaluate all gates
+        run: |
+          if [[ "${{ needs.full-ci.result }}" != "success" ]]; then
+            echo "FAILED: Full CI did not pass"
+            exit 1
+          fi
+          if [[ "${{ needs.contract-tests.result }}" != "success" ]]; then
+            echo "FAILED: Contract tests did not pass"
+            exit 1
+          fi
+          if [[ "${{ needs.coverage-regression.result }}" != "success" ]]; then
+            echo "FAILED: Coverage regression check did not pass"
+            exit 1
+          fi
+          if [[ "${{ needs.security-scan.result }}" != "success" ]]; then
+            echo "FAILED: Security scan did not pass"
+            exit 1
+          fi
+          echo "All PR gates passed — ready for manual approval and merge."
+
+      - name: Post PR summary
+        run: |
+          echo "### PR Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Gate | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Full CI (compile + tests + 80% coverage + Sonar) | ${{ needs.full-ci.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Contract tests | ${{ needs.contract-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage regression guard | ${{ needs.coverage-regression.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| OWASP security scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Manual approval required before merge to main." >> $GITHUB_STEP_SUMMARY

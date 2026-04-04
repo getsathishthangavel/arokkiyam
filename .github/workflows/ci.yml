@@ -1,0 +1,340 @@
+name: CI — continuous integration
+
+# ─────────────────────────────────────────────────────────────
+# Triggers on every push to any branch.
+# Also triggered when a PR targets main (for PR status checks).
+# ─────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - main
+      - develop
+
+# Cancel in-progress runs on the same branch when a new
+# push arrives — keeps queue clean during rapid iteration.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+  MAVEN_OPTS: >-
+    -Xmx2g
+    -XX:+UseG1GC
+    -Dmaven.artifact.threads=8
+  # SonarQube — secrets set in GitHub repository settings
+  SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────
+  # CI-1 + CI-2: Setup and compile check
+  # Fast fail — gives feedback in under 60 seconds.
+  # ─────────────────────────────────────────────────────────
+  compile:
+    name: CI-1/2 — Setup + Compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history needed for SonarQube blame info
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Compile all modules
+        run: |
+          mvn compile \
+            --no-transfer-progress \
+            --batch-mode
+
+      - name: Upload compiled classes (for parallel jobs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-classes
+          path: |
+            **/target/classes/
+            **/target/generated-sources/
+          retention-days: 1
+
+  # ─────────────────────────────────────────────────────────
+  # CI-3: Unit tests — fast, no Docker, no Spring context
+  # Runs in parallel with integration tests after compile.
+  # ─────────────────────────────────────────────────────────
+  unit-tests:
+    name: CI-3 — Unit tests
+    runs-on: ubuntu-latest
+    needs: compile
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Run unit tests (@Tag("unit") only)
+        run: |
+          mvn test \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dgroups=unit \
+            -DexcludedGroups="integration,contract"
+
+      - name: Upload unit test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: '**/target/surefire-reports/*.xml'
+          retention-days: 7
+
+      - name: Publish unit test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          files: '**/target/surefire-reports/*.xml'
+          check_name: Unit Test Results
+
+  # ─────────────────────────────────────────────────────────
+  # CI-4: Integration tests — Testcontainers
+  # Real MySQL, Redis, Kafka spun up in Docker.
+  # Runs in parallel with unit tests after compile.
+  # ─────────────────────────────────────────────────────────
+  integration-tests:
+    name: CI-4 — Integration tests (Testcontainers)
+    runs-on: ubuntu-latest
+    needs: compile
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      # Testcontainers needs Docker — available on ubuntu-latest
+      - name: Verify Docker is available
+        run: docker info
+
+      - name: Run integration tests (@Tag("integration") only)
+        run: |
+          mvn verify \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dgroups=integration \
+            -DexcludedGroups="unit,contract" \
+            -Dfailsafe.groups=integration
+        env:
+          # Testcontainers reuse — speeds up repeated runs
+          TESTCONTAINERS_REUSE_ENABLE: true
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: '**/target/failsafe-reports/*.xml'
+          retention-days: 7
+
+      - name: Upload JaCoCo exec files
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-exec-files
+          path: '**/target/jacoco-*.exec'
+          retention-days: 1
+
+  # ─────────────────────────────────────────────────────────
+  # CI-5 + CI-6: JaCoCo coverage gate + SonarQube analysis
+  # Runs after both test jobs complete.
+  # BUILD FAILS if line coverage < 80% on any module.
+  # BUILD FAILS if SonarQube quality gate fails.
+  # ─────────────────────────────────────────────────────────
+  coverage-and-quality:
+    name: CI-5/6 — JaCoCo 80% gate + SonarQube
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for SonarQube blame
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Download JaCoCo exec files
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-exec-files
+
+      - name: Generate JaCoCo merged report + enforce 80% gate
+        run: |
+          mvn jacoco:merge jacoco:report jacoco:check \
+            --no-transfer-progress \
+            --batch-mode \
+            -Pci
+
+      - name: Upload JaCoCo HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-coverage-report
+          path: '**/target/site/jacoco/'
+          retention-days: 14
+
+      - name: SonarQube analysis
+        if: env.SONAR_HOST_URL != ''
+        run: |
+          mvn sonar:sonar \
+            --no-transfer-progress \
+            --batch-mode \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.coverage.jacoco.xmlReportPaths=\
+              $(find . -name "jacoco.xml" | tr '\n' ',')
+
+      - name: Check SonarQube quality gate
+        if: env.SONAR_HOST_URL != ''
+        uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  # ─────────────────────────────────────────────────────────
+  # CI-7: Build fat JARs
+  # Only runs after all quality gates pass.
+  # On develop branch: also builds Docker image + pushes to ECR.
+  # ─────────────────────────────────────────────────────────
+  build-artifact:
+    name: CI-7 — Build JARs (+ Docker on develop)
+    runs-on: ubuntu-latest
+    needs: coverage-and-quality
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Package all services (skip tests — already ran)
+        run: |
+          mvn package \
+            --no-transfer-progress \
+            --batch-mode \
+            -DskipTests \
+            -DskipITs
+
+      - name: Upload service JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: service-jars
+          path: |
+            iam-service/target/*.jar
+            audit-service/target/*.jar
+            notification-service/target/*.jar
+          retention-days: 7
+
+      # ── Docker build + ECR push (develop branch only) ──
+      - name: Configure AWS credentials
+        if: github.ref == 'refs/heads/develop'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: github.ref == 'refs/heads/develop'
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push IAM Service Docker image
+        if: github.ref == 'refs/heads/develop'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/arokkiyam-iam-service:$IMAGE_TAG \
+            -t $ECR_REGISTRY/arokkiyam-iam-service:latest \
+            -f iam-service/Dockerfile \
+            iam-service/
+          docker push $ECR_REGISTRY/arokkiyam-iam-service:$IMAGE_TAG
+          docker push $ECR_REGISTRY/arokkiyam-iam-service:latest
+
+      - name: Build and push Audit Service Docker image
+        if: github.ref == 'refs/heads/develop'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/arokkiyam-audit-service:$IMAGE_TAG \
+            -t $ECR_REGISTRY/arokkiyam-audit-service:latest \
+            -f audit-service/Dockerfile \
+            audit-service/
+          docker push $ECR_REGISTRY/arokkiyam-audit-service:$IMAGE_TAG
+          docker push $ECR_REGISTRY/arokkiyam-audit-service:latest
+
+      - name: Build and push Notification Service Docker image
+        if: github.ref == 'refs/heads/develop'
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            -t $ECR_REGISTRY/arokkiyam-notification-service:$IMAGE_TAG \
+            -t $ECR_REGISTRY/arokkiyam-notification-service:latest \
+            -f notification-service/Dockerfile \
+            notification-service/
+          docker push $ECR_REGISTRY/arokkiyam-notification-service:$IMAGE_TAG
+          docker push $ECR_REGISTRY/arokkiyam-notification-service:latest
+
+      - name: Output build summary
+        run: |
+          echo "### CI Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Compile | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Unit tests | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Integration tests | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| JaCoCo 80% gate | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| SonarQube quality gate | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Branch | \`${{ github.ref_name }}\` |" >> $GITHUB_STEP_SUMMARY

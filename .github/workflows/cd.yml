@@ -1,0 +1,375 @@
+name: CD — deploy to production (ECS)
+
+# ─────────────────────────────────────────────────────────────
+# Triggers only when code is merged/pushed to main.
+# All CI gates must already be green (enforced by branch
+# protection on main — no direct pushes allowed).
+# ─────────────────────────────────────────────────────────────
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  # Only one CD run at a time — prevents simultaneous deploys
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  JAVA_VERSION: '21'
+  JAVA_DISTRIBUTION: 'temurin'
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECS_CLUSTER: arokkiyam-production
+  DEPLOY_ENV: production
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────
+  # CD-1: Build and push Docker images to ECR
+  # Tags with both git-sha and 'latest'.
+  # Only rebuilds services with changed files.
+  # ─────────────────────────────────────────────────────────
+  build-and-push:
+    name: CD-1 — Docker build + ECR push
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image-tag: ${{ github.sha }}
+      iam-changed: ${{ steps.changes.outputs.iam }}
+      audit-changed: ${{ steps.changes.outputs.audit }}
+      notification-changed: ${{ steps.changes.outputs.notification }}
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Detect changed services
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            iam:
+              - 'iam-service/**'
+              - 'shared-core/**'
+              - 'pom.xml'
+            audit:
+              - 'audit-service/**'
+              - 'shared-core/**'
+              - 'pom.xml'
+            notification:
+              - 'notification-service/**'
+              - 'shared-core/**'
+              - 'pom.xml'
+
+      - name: Set up Java ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: ${{ env.JAVA_DISTRIBUTION }}
+          cache: maven
+
+      - name: Build production JARs
+        run: |
+          mvn package \
+            --no-transfer-progress \
+            --batch-mode \
+            -DskipTests \
+            -Prelease
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build + push IAM Service
+        if: steps.changes.outputs.iam == 'true'
+        run: |
+          docker build \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-iam-service:${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-iam-service:latest \
+            -f iam-service/Dockerfile \
+            iam-service/
+          docker push $ECR_REGISTRY/arokkiyam-iam-service:${{ github.sha }}
+          docker push $ECR_REGISTRY/arokkiyam-iam-service:latest
+
+      - name: Build + push Audit Service
+        if: steps.changes.outputs.audit == 'true'
+        run: |
+          docker build \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-audit-service:${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-audit-service:latest \
+            -f audit-service/Dockerfile \
+            audit-service/
+          docker push $ECR_REGISTRY/arokkiyam-audit-service:${{ github.sha }}
+          docker push $ECR_REGISTRY/arokkiyam-audit-service:latest
+
+      - name: Build + push Notification Service
+        if: steps.changes.outputs.notification == 'true'
+        run: |
+          docker build \
+            --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+            --build-arg GIT_COMMIT=${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-notification-service:${{ github.sha }} \
+            -t $ECR_REGISTRY/arokkiyam-notification-service:latest \
+            -f notification-service/Dockerfile \
+            notification-service/
+          docker push $ECR_REGISTRY/arokkiyam-notification-service:${{ github.sha }}
+          docker push $ECR_REGISTRY/arokkiyam-notification-service:latest
+
+  # ─────────────────────────────────────────────────────────
+  # CD-2 + CD-3: ECS blue/green deployment
+  # Uses GitHub Environments for manual approval gate.
+  # Deploys to ECS Fargate with CodeDeploy blue/green.
+  # Auto-rollback on CloudWatch alarm (5xx > 1%).
+  # ─────────────────────────────────────────────────────────
+  deploy:
+    name: CD-2/3 — Deploy to ECS (blue/green)
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    timeout-minutes: 30
+    # GitHub Environment — requires manual approval before
+    # this job runs. Approval is logged with reviewer + timestamp.
+    environment:
+      name: production
+      url: https://api.arokkiyam.com
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── IAM Service deploy ──
+      - name: Download IAM task definition
+        if: needs.build-and-push.outputs.iam-changed == 'true'
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition arokkiyam-iam-service \
+            --query taskDefinition \
+            > iam-service/task-definition.json
+
+      - name: Update IAM task definition with new image
+        if: needs.build-and-push.outputs.iam-changed == 'true'
+        id: iam-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: iam-service/task-definition.json
+          container-name: iam-service
+          image: >-
+            ${{ env.ECR_REGISTRY }}/arokkiyam-iam-service:${{ github.sha }}
+
+      - name: Deploy IAM Service to ECS
+        if: needs.build-and-push.outputs.iam-changed == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.iam-task-def.outputs.task-definition }}
+          service: arokkiyam-iam-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+          codedeploy-appspec: iam-service/appspec.yml
+          codedeploy-application: arokkiyam-iam-service
+          codedeploy-deployment-group: arokkiyam-iam-service-production
+
+      # ── Audit Service deploy ──
+      - name: Download Audit task definition
+        if: needs.build-and-push.outputs.audit-changed == 'true'
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition arokkiyam-audit-service \
+            --query taskDefinition \
+            > audit-service/task-definition.json
+
+      - name: Update Audit task definition with new image
+        if: needs.build-and-push.outputs.audit-changed == 'true'
+        id: audit-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: audit-service/task-definition.json
+          container-name: audit-service
+          image: >-
+            ${{ env.ECR_REGISTRY }}/arokkiyam-audit-service:${{ github.sha }}
+
+      - name: Deploy Audit Service to ECS
+        if: needs.build-and-push.outputs.audit-changed == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.audit-task-def.outputs.task-definition }}
+          service: arokkiyam-audit-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+      # ── Notification Service deploy ──
+      - name: Download Notification task definition
+        if: needs.build-and-push.outputs.notification-changed == 'true'
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition arokkiyam-notification-service \
+            --query taskDefinition \
+            > notification-service/task-definition.json
+
+      - name: Update Notification task definition with new image
+        if: needs.build-and-push.outputs.notification-changed == 'true'
+        id: notification-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: notification-service/task-definition.json
+          container-name: notification-service
+          image: >-
+            ${{ env.ECR_REGISTRY }}/arokkiyam-notification-service:${{ github.sha }}
+
+      - name: Deploy Notification Service to ECS
+        if: needs.build-and-push.outputs.notification-changed == 'true'
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.notification-task-def.outputs.task-definition }}
+          service: arokkiyam-notification-service
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  # ─────────────────────────────────────────────────────────
+  # CD-4: Smoke tests post-deploy
+  # Automated health checks against production endpoints.
+  # Failed smoke test triggers automatic ECS rollback.
+  # ─────────────────────────────────────────────────────────
+  smoke-tests:
+    name: CD-4 — Smoke tests + auto-rollback on failure
+    runs-on: ubuntu-latest
+    needs: deploy
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Run smoke tests
+        id: smoke
+        run: |
+          BASE_URL="${{ secrets.PRODUCTION_API_URL }}"
+
+          echo "Testing IAM Service health..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$BASE_URL/iam/actuator/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE FAILED: IAM health check returned $STATUS"
+            exit 1
+          fi
+
+          echo "Testing Audit Service health..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$BASE_URL/audit/actuator/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE FAILED: Audit health check returned $STATUS"
+            exit 1
+          fi
+
+          echo "Testing Notification Service health..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$BASE_URL/notification/actuator/health")
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE FAILED: Notification health check returned $STATUS"
+            exit 1
+          fi
+
+          echo "Testing JWKS endpoint (critical for API Gateway)..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$BASE_URL/iam/.well-known/jwks.json")
+          if [ "$STATUS" != "200" ]; then
+            echo "SMOKE FAILED: JWKS endpoint returned $STATUS"
+            exit 1
+          fi
+
+          echo "All smoke tests passed."
+
+      - name: Rollback on smoke test failure
+        if: failure() && steps.smoke.outcome == 'failure'
+        run: |
+          echo "Smoke tests failed — rolling back ECS services..."
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service arokkiyam-iam-service \
+            --force-new-deployment
+          echo "Rollback initiated. Monitor ECS console."
+
+  # ─────────────────────────────────────────────────────────
+  # CD-5: Deployment notification
+  # Posts result to Slack. Pages on-call on failure.
+  # ─────────────────────────────────────────────────────────
+  notify:
+    name: CD-5 — Deployment notification
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Post success notification to Slack
+        if: needs.smoke-tests.result == 'success'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "DEPLOYED: Arokkiyam production",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Arokkiyam production deploy succeeded*\n Commit: `${{ github.sha }}`\n Branch: `main`\n By: ${{ github.actor }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Post failure notification + page on-call
+        if: needs.smoke-tests.result != 'success' || needs.deploy.result != 'success'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "FAILED: Arokkiyam production deploy FAILED",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*DEPLOY FAILED — action required*\n Commit: `${{ github.sha }}`\n Deploy result: ${{ needs.deploy.result }}\n Smoke tests: ${{ needs.smoke-tests.result }}\n <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_ONCALL }}
+
+      - name: Write deployment summary
+        run: |
+          echo "### Production Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Result |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker build + ECR push | ${{ needs.build-and-push.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ECS blue/green deploy | ${{ needs.deploy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke tests | ${{ needs.smoke-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deployed by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY

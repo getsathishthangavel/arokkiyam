@@ -1,0 +1,70 @@
+# ─── Maven ───────────────────────────────────────────────────
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ─── Compiled class files ─────────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# ─── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+spring.log
+
+# ─── IDE ──────────────────────────────────────────────────────
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+*.launch
+*.prefs
+
+# ─── OS ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Environment / Secrets ────────────────────────────────────
+# NEVER commit environment files with real credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+
+# ─── Docker ───────────────────────────────────────────────────
+.docker/
+
+# ─── Testcontainers ───────────────────────────────────────────
+.testcontainers.properties
+
+# ─── JaCoCo ───────────────────────────────────────────────────
+*.exec
+
+# ─── SonarQube ────────────────────────────────────────────────
+.scannerwork/
+
+# ─── OWASP ────────────────────────────────────────────────────
+dependency-check-report.*
+
+# ─── Node (for Next.js frontend — added later) ────────────────
+node_modules/
+.next/
+.nuxt/
+dist/
+.output/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*

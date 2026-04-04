@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────
+# CODEOWNERS — Arokkiyam
+# Defines who must review changes to each module.
+# All patterns require at least one approval from the listed
+# team/user before a PR to main can be merged.
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# ─────────────────────────────────────────────────────────────
+
+# Global fallback — senior architect reviews everything
+*                           @arokkiyam/senior-engineers
+
+# Shared core — highest impact, most scrutiny
+/shared-core/               @arokkiyam/senior-engineers
+
+# IAM service — security-critical, mandatory review
+/iam-service/               @arokkiyam/senior-engineers @arokkiyam/security-team
+
+# Audit service — compliance-critical
+/audit-service/             @arokkiyam/senior-engineers
+
+# Notification service
+/notification-service/      @arokkiyam/backend-engineers
+
+# CI/CD workflows — only senior engineers may modify pipelines
+/.github/workflows/         @arokkiyam/senior-engineers
+
+# Maven parent POM — version changes affect all modules
+/pom.xml                    @arokkiyam/senior-engineers
+
+# SonarQube config — quality gate changes must be reviewed
+/sonar-project.properties   @arokkiyam/senior-engineers
