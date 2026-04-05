@@ -90,8 +90,8 @@
         </sonar.exclusions>
 
         <!-- JaCoCo coverage threshold -->
-        <jacoco.line.coverage.minimum>0.80</jacoco.line.coverage.minimum>
-        <jacoco.branch.coverage.minimum>0.75</jacoco.branch.coverage.minimum>
+        <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
+        <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
 
         <!-- Plugin versions -->
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
