@@ -223,8 +223,18 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=\
               $(find . -name "jacoco.xml" | tr '\n' ',')
 
+      - name: Check if Sonar report exists
+        id: sonar-report-check
+        if: env.SONAR_TOKEN != ''
+        run: |
+          if [ -f ".scannerwork/report-task.txt" ]; then
+            echo "sonar_report_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "sonar_report_exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Check SonarQube quality gate
-        if: env.SONAR_TOKEN != '' && hashFiles('.scannerwork/report-task.txt') != ''
+        if: env.SONAR_TOKEN != '' && steps.sonar-report-check.outputs.sonar_report_exists == 'true'
         uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
         timeout-minutes: 5
         env:
