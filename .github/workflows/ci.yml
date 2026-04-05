@@ -233,6 +233,13 @@ jobs:
             echo "sonar_report_exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Warn if Sonar analysis failed
+        if: env.SONAR_TOKEN != '' && steps.sonar-report-check.outputs.sonar_report_exists == 'false'
+        run: |
+          echo "::warning::SonarQube analysis was configured but failed to generate report file"
+          echo "::warning::Check SonarQube logs above for analysis errors"
+          echo "::warning::Quality gate check will be skipped"
+
       - name: Check SonarQube quality gate
         if: env.SONAR_TOKEN != '' && steps.sonar-report-check.outputs.sonar_report_exists == 'true'
         uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
