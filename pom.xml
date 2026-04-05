@@ -414,6 +414,32 @@
                         </fileSet>
                     </fileSets>
                     <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+                    <rules>
+                        <rule>
+                            <element>BUNDLE</element>
+                            <excludes>
+                                <exclude>com.arokkiyam.*.dto.*</exclude>
+                                <exclude>com.arokkiyam.*.entity.*</exclude>
+                                <exclude>com.arokkiyam.*.config.*</exclude>
+                                <exclude>com.arokkiyam.*.exception.*</exclude>
+                                <exclude>com.arokkiyam.*.web.*</exclude>
+                                <exclude>com.arokkiyam.*.*Application</exclude>
+                                <exclude>com.arokkiyam.*.model.*</exclude>
+                            </excludes>
+                            <limits>
+                                <limit>
+                                    <counter>LINE</counter>
+                                    <value>COVEREDRATIO</value>
+                                    <minimum>${jacoco.line.coverage.minimum}</minimum>
+                                </limit>
+                                <limit>
+                                    <counter>BRANCH</counter>
+                                    <value>COVEREDRATIO</value>
+                                    <minimum>${jacoco.branch.coverage.minimum}</minimum>
+                                </limit>
+                            </limits>
+                        </rule>
+                    </rules>
                 </configuration>
                 <executions>
 
