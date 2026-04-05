@@ -404,6 +404,10 @@
                 <version>${jacoco.version}</version>
                 <executions>
 
+                <configuration>
+                    <skip>${jacoco.skip}</skip>
+                </configuration>
+
                     <!-- Prepare agent for unit tests (Surefire) -->
                     <execution>
                         <id>prepare-agent-unit</id>
@@ -504,14 +508,6 @@
                     </execution>
 
                 </executions>
-            </plugin>
-
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <configuration>
-                    <skip>${jacoco.skip}</skip>
-                </configuration>
             </plugin>
 
             <!-- ── SonarQube Analysis ── -->
