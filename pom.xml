@@ -79,7 +79,8 @@
         <sonar.version>3.11.0.3922</sonar.version>
         <sonar.projectKey>arokkiyam</sonar.projectKey>
         <sonar.organization>arokkiyam</sonar.organization>
-        <sonar.host.url>http://localhost:9000</sonar.host.url>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <sonar.skip>true</sonar.skip>
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.build.directory}/site/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
@@ -403,7 +404,6 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
                 <configuration>
-                    <skip>${jacoco.skip}</skip>
                     <fileSets>
                         <fileSet>
                             <directory>${project.build.directory}</directory>
@@ -506,6 +506,7 @@
                         <phase>verify</phase>
                         <goals><goal>check</goal></goals>
                         <configuration>
+                            <skip>${jacoco.skip}</skip>
                             <dataFile>
                                 ${project.build.directory}/jacoco-merged.exec
                             </dataFile>
@@ -593,6 +594,9 @@
                 <skipITs>false</skipITs>
                 <jacoco.skip>false</jacoco.skip>
                 <sonar.skip>false</sonar.skip>
+                <sonar.host.url>${env.SONAR_HOST_URL}</sonar.host.url>
+                <sonar.login>${env.SONAR_TOKEN}</sonar.login>
+                <sonar.projectKey>${env.SONAR_PROJECT_KEY}</sonar.projectKey>
                 <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
                 <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
             </properties>
