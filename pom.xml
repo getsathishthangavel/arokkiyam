@@ -80,7 +80,6 @@
         <sonar.projectKey>arokkiyam</sonar.projectKey>
         <sonar.organization>arokkiyam</sonar.organization>
         <sonar.host.url>http://localhost:9000</sonar.host.url>
-        <sonar.skip>true</sonar.skip>
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.build.directory}/site/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
@@ -593,7 +592,7 @@
             <properties>
                 <skipITs>false</skipITs>
                 <jacoco.skip>false</jacoco.skip>
-                <sonar.skip>${sonar.skip}</sonar.skip>
+                <sonar.skip>false</sonar.skip>
                 <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
                 <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
             </properties>
