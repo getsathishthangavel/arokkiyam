@@ -197,7 +197,7 @@ jobs:
 
       - name: Generate JaCoCo merged report + enforce 80% gate
         run: |
-          mvn jacoco:merge jacoco:report jacoco:check \
+          mvn jacoco:report jacoco:check \
             --no-transfer-progress \
             --batch-mode \
             -Pci
