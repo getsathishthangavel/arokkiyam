@@ -77,10 +77,9 @@
         <!-- Quality -->
         <jacoco.version>0.8.12</jacoco.version>
         <sonar.version>3.11.0.3922</sonar.version>
-        <sonar.projectKey>arokkiyam</sonar.projectKey>
-        <sonar.organization>arokkiyam</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.skip>true</sonar.skip>
+        <sonar.modules></sonar.modules>
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.build.directory}/site/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
@@ -403,44 +402,6 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
-                <configuration>
-                    <fileSets>
-                        <fileSet>
-                            <directory>${project.build.directory}</directory>
-                            <includes>
-                                <include>jacoco-unit.exec</include>
-                                <include>jacoco-integration.exec</include>
-                            </includes>
-                        </fileSet>
-                    </fileSets>
-                    <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
-                    <rules>
-                        <rule>
-                            <element>BUNDLE</element>
-                            <excludes>
-                                <exclude>com.arokkiyam.*.dto.*</exclude>
-                                <exclude>com.arokkiyam.*.entity.*</exclude>
-                                <exclude>com.arokkiyam.*.config.*</exclude>
-                                <exclude>com.arokkiyam.*.exception.*</exclude>
-                                <exclude>com.arokkiyam.*.web.*</exclude>
-                                <exclude>com.arokkiyam.*.*Application</exclude>
-                                <exclude>com.arokkiyam.*.model.*</exclude>
-                            </excludes>
-                            <limits>
-                                <limit>
-                                    <counter>LINE</counter>
-                                    <value>COVEREDRATIO</value>
-                                    <minimum>${jacoco.line.coverage.minimum}</minimum>
-                                </limit>
-                                <limit>
-                                    <counter>BRANCH</counter>
-                                    <value>COVEREDRATIO</value>
-                                    <minimum>${jacoco.branch.coverage.minimum}</minimum>
-                                </limit>
-                            </limits>
-                        </rule>
-                    </rules>
-                </configuration>
                 <executions>
 
                     <!-- Prepare agent for unit tests (Surefire) -->
@@ -461,27 +422,6 @@
                         <configuration>
                             <propertyName>failsafe.jacoco.args</propertyName>
                             <destFile>${project.build.directory}/jacoco-integration.exec</destFile>
-                        </configuration>
-                    </execution>
-
-                    <!-- Merge unit + integration exec files -->
-                    <execution>
-                        <id>merge-results</id>
-                        <phase>post-integration-test</phase>
-                        <goals><goal>merge</goal></goals>
-                        <configuration>
-                            <fileSets>
-                                <fileSet>
-                                    <directory>${project.build.directory}</directory>
-                                    <includes>
-                                        <include>jacoco-unit.exec</include>
-                                        <include>jacoco-integration.exec</include>
-                                    </includes>
-                                </fileSet>
-                            </fileSets>
-                            <destFile>
-                                ${project.build.directory}/jacoco-merged.exec
-                            </destFile>
                         </configuration>
                     </execution>
 
@@ -546,28 +486,6 @@
                 </executions>
             </plugin>
 
-            <!-- ── SonarQube Analysis ── -->
-            <plugin>
-                <groupId>org.sonarsource.scanner.maven</groupId>
-                <artifactId>sonar-maven-plugin</artifactId>
-                <version>${sonar.version}</version>
-                <configuration>
-                    <skip>${sonar.skip}</skip>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>sonar</id>
-                        <phase>verify</phase>
-                        <goals>
-                            <goal>sonar</goal>
-                        </goals>
-                        <configuration>
-                            <skip>${sonar.skip}</skip>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
         </plugins>
 
     </build>
@@ -595,9 +513,7 @@
                 <jacoco.skip>false</jacoco.skip>
                 <sonar.skip>false</sonar.skip>
                 <sonar.host.url>https://sonarcloud.io</sonar.host.url>
-                <sonar.login>${env.SONAR_TOKEN}</sonar.login>
-                <sonar.projectKey>${env.SONAR_PROJECT_KEY}</sonar.projectKey>
-                <sonar.organization>${env.SONAR_ORGANIZATION}</sonar.organization>
+                <sonar.token>${env.SONAR_TOKEN}</sonar.token>
                 <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
                 <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
             </properties>
