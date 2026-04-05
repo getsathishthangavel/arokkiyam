@@ -107,6 +107,12 @@
                     <skip>true</skip>
                 </configuration>
             </plugin>
+
+            <!-- ✅ This activates JaCoCo using parent config -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
         </plugins>
     </build>
 

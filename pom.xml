@@ -402,11 +402,10 @@
                 <groupId>org.jacoco</groupId>
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <version>${jacoco.version}</version>
-                <executions>
-
                 <configuration>
                     <skip>${jacoco.skip}</skip>
                 </configuration>
+                <executions>
 
                     <!-- Prepare agent for unit tests (Surefire) -->
                     <execution>
@@ -430,7 +429,7 @@
                     </execution>
 
                     <!-- Merge unit + integration exec files -->
-                    <execution>
+                    <!-- <execution>
                         <id>merge-results</id>
                         <phase>post-integration-test</phase>
                         <goals><goal>merge</goal></goals>
@@ -448,7 +447,7 @@
                                 ${project.build.directory}/jacoco-merged.exec
                             </destFile>
                         </configuration>
-                    </execution>
+                    </execution> -->
 
                     <!-- Generate merged HTML + XML report -->
                     <execution>
