@@ -427,6 +427,26 @@
                         </configuration>
                     </execution>
 
+                    <!-- Merged the generated reports to perform sonar check -->
+                    <execution>
+                        <id>merge</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>merge</goal>
+                        </goals>
+                        <configuration>
+                            <fileSets>
+                                <fileSet>
+                                    <directory>${project.build.directory}</directory>
+                                    <includes>
+                                        <include>*.exec</include>
+                                    </includes>
+                                </fileSet>
+                            </fileSets>
+                            <destFile>${project.build.directory}/jacoco.exec</destFile>
+                        </configuration>
+                    </execution>
+
                     <!-- Generate merged HTML + XML report -->
                     <execution>
                         <id>report</id>
