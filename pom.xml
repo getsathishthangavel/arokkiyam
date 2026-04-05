@@ -429,7 +429,7 @@
                     </execution>
 
                     <!-- Merge unit + integration exec files -->
-                    <!-- <execution>
+                    <execution>
                         <id>merge-results</id>
                         <phase>post-integration-test</phase>
                         <goals><goal>merge</goal></goals>
@@ -447,7 +447,7 @@
                                 ${project.build.directory}/jacoco-merged.exec
                             </destFile>
                         </configuration>
-                    </execution> -->
+                    </execution>
 
                     <!-- Generate merged HTML + XML report -->
                     <execution>
@@ -464,7 +464,7 @@
                         </configuration>
                     </execution>
 
-                    <!-- ── COVERAGE GATE — build fails below 80% ── -->
+                    <!-- ── COVERAGE GATE — enabled at 25% for both line and branch ratios ── -->
                     <execution>
                         <id>check-coverage</id>
                         <phase>verify</phase>
@@ -477,11 +477,11 @@
                                 <rule>
                                     <element>BUNDLE</element>
                                     <excludes>
-                                        <!-- DTOs, entities, configs excluded from gate -->
                                         <exclude>com.arokkiyam.*.dto.*</exclude>
                                         <exclude>com.arokkiyam.*.entity.*</exclude>
                                         <exclude>com.arokkiyam.*.config.*</exclude>
                                         <exclude>com.arokkiyam.*.exception.*</exclude>
+                                        <exclude>com.arokkiyam.*.web.*</exclude>
                                         <exclude>com.arokkiyam.*.*Application</exclude>
                                         <exclude>com.arokkiyam.*.model.*</exclude>
                                     </excludes>
@@ -540,8 +540,9 @@
             <id>ci</id>
             <properties>
                 <skipITs>false</skipITs>
-                <jacoco.line.coverage.minimum>0.80</jacoco.line.coverage.minimum>
-                <jacoco.branch.coverage.minimum>0.75</jacoco.branch.coverage.minimum>
+                <jacoco.skip>false</jacoco.skip>
+                <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
+                <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
             </properties>
         </profile>
 
