@@ -210,16 +210,14 @@ jobs:
           fi
 
           echo "Running SonarQube analysis..."
-          mvn verify sonar:sonar \
+          mvn clean verify sonar:sonar \
             --no-transfer-progress \
             --batch-mode \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
-            -Dsonar.coverage.jacoco.xmlReportPaths=\
-              $(find . -name "jacoco.xml" | tr '\n' ',')
-        continue-on-error: true
+            -Dsonar.coverage.jacoco.xmlReportPaths=**/target/site/jacoco/jacoco.xml
 
       - name: Check SonarQube analysis result
         id: sonar-result-check
