@@ -106,4 +106,15 @@
         </plugins>
     </build>
 
+    <rule>
+        <element>BUNDLE</element>
+        <limits>
+            <limit>
+                <counter>LINE</counter>
+                <value>COVEREDRATIO</value>
+                <minimum>0.25</minimum> 
+            </limit>
+        </limits>
+    </rule>
+
 </project>
