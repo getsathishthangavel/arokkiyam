@@ -404,6 +404,16 @@
                 <version>${jacoco.version}</version>
                 <configuration>
                     <skip>${jacoco.skip}</skip>
+                    <fileSets>
+                        <fileSet>
+                            <directory>${project.build.directory}</directory>
+                            <includes>
+                                <include>jacoco-unit.exec</include>
+                                <include>jacoco-integration.exec</include>
+                            </includes>
+                        </fileSet>
+                    </fileSets>
+                    <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
                 </configuration>
                 <executions>
 
