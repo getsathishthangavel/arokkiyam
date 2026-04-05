@@ -29,6 +29,8 @@ env:
   # SonarQube — secrets set in GitHub repository settings
   SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY || vars.SONAR_PROJECT_KEY || 'arokkiyam' }}
+  SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION || vars.SONAR_ORGANIZATION || 'getsathishthangavel' }}
 
 jobs:
 
@@ -223,9 +225,9 @@ jobs:
           mvn sonar:sonar \
             --no-transfer-progress \
             --batch-mode \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=\
               $(find . -name "jacoco.xml" | tr '\n' ',')
         continue-on-error: true
