@@ -25,6 +25,10 @@
         a plain library with Spring Boot auto-configuration.
     </description>
 
+    <properties>
+        <jacoco.skip>false</jacoco.skip>
+    </properties>
+
     <dependencies>
 
         <!-- Spring Boot starters — provided scope so this
