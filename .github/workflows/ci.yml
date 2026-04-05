@@ -224,7 +224,7 @@ jobs:
               $(find . -name "jacoco.xml" | tr '\n' ',')
 
       - name: Check SonarQube quality gate
-        if: env.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != '' && hashFiles('.scannerwork/report-task.txt') != ''
         uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
         timeout-minutes: 5
         env:
