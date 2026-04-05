@@ -93,7 +93,7 @@
         <jacoco.line.coverage.minimum>0.25</jacoco.line.coverage.minimum>
         <jacoco.branch.coverage.minimum>0.25</jacoco.branch.coverage.minimum>
         <jacoco.skip>true</jacoco.skip>
-        
+
         <!-- Plugin versions -->
         <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
@@ -428,7 +428,7 @@
                     <!-- Merge unit + integration exec files -->
                     <execution>
                         <id>merge-results</id>
-                        <phase>post-integration-test</phase>
+                    <!-- <phase>post-integration-test</phase> -->
                         <goals><goal>merge</goal></goals>
                         <configuration>
                             <fileSets>
