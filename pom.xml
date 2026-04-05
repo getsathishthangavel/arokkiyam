@@ -80,6 +80,7 @@
         <sonar.projectKey>arokkiyam</sonar.projectKey>
         <sonar.organization>arokkiyam</sonar.organization>
         <sonar.host.url>http://localhost:9000</sonar.host.url>
+        <sonar.skip>true</sonar.skip>
         <sonar.coverage.jacoco.xmlReportPaths>
             ${project.build.directory}/site/jacoco/jacoco.xml
         </sonar.coverage.jacoco.xmlReportPaths>
@@ -550,6 +551,9 @@
                 <groupId>org.sonarsource.scanner.maven</groupId>
                 <artifactId>sonar-maven-plugin</artifactId>
                 <version>${sonar.version}</version>
+                <configuration>
+                    <skip>${sonar.skip}</skip>
+                </configuration>
             </plugin>
 
         </plugins>
